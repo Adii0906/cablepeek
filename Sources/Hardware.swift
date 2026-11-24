@@ -188,6 +188,7 @@ enum Hardware {
             let name = prop(e, "USB Product Name") as? String ?? L("USB-Gerät", "USB device")
             ports[n]?.devices.append(Device(name: name, bps: s, volumes: volumes(e, m), loc: l))
         }
-        return ports.values.sorted { $0.number < $1.number }
+        // MagSafe zuerst: es sitzt links ganz hinten, vor den USB-C-Ports.
+        return ports.values.sorted { ($0.magsafe ? 0 : 1, $0.number) < ($1.magsafe ? 0 : 1, $1.number) }
     }
 }
