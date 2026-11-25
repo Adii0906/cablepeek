@@ -41,3 +41,5 @@ Bug reports and pull requests are welcome, see [CONTRIBUTING.md](CONTRIBUTING.md
 For deeper cable and power diagnostics, use [WhatCable](https://github.com/darrylmorley/whatcable).
 
 Built with help from Claude. MIT license. Not affiliated with Apple.
+
+CablePeek is free. If it helps, you can [buy me a coffee](https://buymeacoffee.com/diegoespresso).
