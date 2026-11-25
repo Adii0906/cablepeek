@@ -33,7 +33,9 @@ struct Card: View {
         default: return p.verdict ?? p.detail
         }
     }
-    var color: Color { p.slowStorage ? .orange : (p.speedText == nil ? .secondary : .green) }
+    /// Netzteil ohne USB-PD: gleicher Blitz, nur orange.
+    var slowCharge: Bool { p.main == nil && !p.isThunderbolt && p.charger?.pd == false }
+    var color: Color { p.slowStorage || slowCharge ? .orange : (p.speedText == nil ? .secondary : .green) }
     var body: some View {
         HStack(spacing: 11) {
             Image(systemName: p.slowStorage ? "exclamationmark" : (p.speedText == nil ? "cable.connector" : "bolt.fill"))
@@ -80,7 +82,7 @@ struct Glass: ViewModifier {
         let l = p.location
         // Die Ports liegen hinten am Gehäuse, also unten am Bildschirm nahe dem Scharnier.
         // Ohne bekannte Lage nach Nummer stapeln, damit sich nichts überdeckt.
-        let dy: CGFloat = l.hasSuffix("back") ? 150 : l.hasSuffix("front") ? 70 : l == "left" || l == "right" ? 110 : 70 + 80 * CGFloat(p.number - 1)
+        let dy: CGFloat = l == "magsafe" ? 230 : l.hasSuffix("back") ? 150 : l.hasSuffix("front") ? 70 : l == "left" || l == "right" ? 110 : 70 + 80 * CGFloat(p.number - 1)
         return NSRect(origin: NSPoint(x: left(p) ? s.frame.minX : s.frame.maxX - size.width, y: s.frame.minY + dy), size: size)
     }
     /// Schmaler Streifen am Rand, der die Anzeige hervorholt.
@@ -169,7 +171,7 @@ struct Glass: ViewModifier {
             while case let e = IOIteratorNext(it), e != 0 { IOObjectRelease(e) }
             MainActor.assumeIsolated { Unmanaged<Delegate>.fromOpaque(ctx!).takeUnretainedValue().soon() }
         }
-        for c in ["IOUSBHostDevice", "IOPortTransportComponentCCUSBPDSOPp", "IOPortTransportState"] {
+        for c in ["IOUSBHostDevice", "IOPortTransportComponentCCUSBPDSOPp", "IOPortTransportState", "IOPortFeaturePowerSource"] {
             for k in [kIOFirstMatchNotification, kIOTerminatedNotification] {
                 var it: io_iterator_t = 0
                 guard IOServiceAddMatchingNotification(notify, k, IOServiceMatching(c), cb, Unmanaged.passUnretained(self).toOpaque(), &it) == KERN_SUCCESS else { continue }
@@ -184,7 +186,7 @@ struct Glass: ViewModifier {
     }
     func refresh() {
         let now = Hardware.scan()
-        for p in now {
+        for var p in now {
             let old = ports.first { $0.number == p.number }
             if !p.active { if connectedAt.removeValue(forKey: p.number) != nil || old?.active == true { overlay.hide(p.number); shown[p.number] = nil; held.remove(p.number) }; continue }
             if old?.active != true || old?.uuid != p.uuid { connectedAt[p.number] = Date(); shown[p.number] = nil }
@@ -192,6 +194,9 @@ struct Glass: ViewModifier {
             guard let t = connectedAt[p.number] else { continue }
             let age = Date().timeIntervalSince(t)
             let settled = age > 3
+            // Zuerst gewinnt kurz Type-C (5 V, 15 W), USB-PD folgt nach ~0,5 s. Bis dahin nicht anzeigen;
+            // reine 5-V-Netzteile erscheinen nach der Einschwingzeit trotzdem.
+            if !settled, p.charger?.pd == false { p.charger = nil }
             let key = "\(p.speedText ?? "")|\(p.verdict ?? "")|\(p.detail)|\(settled || p.speedText != nil)"
             if shown[p.number] != key, !held.contains(p.number) { shown[p.number] = key; overlay.show(p, settled: settled) }
             if age > 8 { connectedAt[p.number] = nil }
@@ -259,6 +264,9 @@ struct Glass: ViewModifier {
             if p.active {
                 let sub = NSMenu()
                 for d in p.devices { sub.addItem(withTitle: "\(d.name)\(d.volumes.isEmpty ? "" : " (\(d.volumes.joined(separator: ", ")))"): \(PortState.fmt(d.bps))", action: nil, keyEquivalent: "") }
+                if let c = p.charger {
+                    sub.addItem(withTitle: L("Laden", "Charging") + ": \(p.chargeText!)" + (c.maxWatts > c.watts ? L(", Netzteil bis \(c.maxWatts) W", ", charger up to \(c.maxWatts) W") : ""), action: nil, keyEquivalent: "")
+                }
                 sub.addItem(withTitle: p.cable.map { L("Kabelchip", "Cable chip") + ": \($0.speed), \($0.watts) W" } ?? L("Kein Kabelchip gefunden", "No cable chip found"), action: nil, keyEquivalent: "")
                 if let v = p.verdict { sub.addItem(withTitle: v, action: nil, keyEquivalent: "") }
                 i.submenu = sub
@@ -276,7 +284,7 @@ struct Glass: ViewModifier {
 @main struct Main {
     @MainActor static func main() {
         if CommandLine.arguments.contains("--dump") {
-            for p in Hardware.scan() { print(p.place, Overlay.edge(p).map { "\(Int($0.midX)),\(Int($0.midY))" } ?? "-", p.active ? "aktiv" : "frei", p.speedText ?? "-", "|", p.detail, "|", p.verdict ?? "-", "|", p.cable.map { "\($0.speed) \($0.watts)W" } ?? "kein Chip") }
+            for p in Hardware.scan() { print(p.place, Overlay.edge(p).map { "\(Int($0.midX)),\(Int($0.midY))" } ?? "-", p.active ? "aktiv" : "frei", p.speedText ?? "-", "|", p.detail, "|", p.verdict ?? "-", "|", p.cable.map { "\($0.speed) \($0.watts)W" } ?? "kein Chip", "|", p.charger.map { "\(p.chargeText!) (max \($0.maxWatts) W)" } ?? "kein Laden") }
             return
         }
         let d = Delegate(); NSApplication.shared.delegate = d

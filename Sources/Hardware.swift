@@ -5,13 +5,17 @@ let german = Locale.preferredLanguages.first?.hasPrefix("de") ?? false
 func L(_ de: String, _ en: String) -> String { german ? de : en }
 
 struct Cable { var speed: String; var bps: Double; var watts: Int }
+/// Ausgehandelter Ladevertrag (USB-PD) und was das Netzteil insgesamt anbietet.
+struct Charger { var watts: Int; var volts: Double; var maxWatts: Int; var pd: Bool }
 struct Device: Equatable { var name: String; var bps: Double; var volumes: [String]; var loc: UInt32 }
 struct PortState {
     var number: Int
     var active = false
     var uuid = ""
     var location = ""   // z. B. left-back, left-front, right; leer = unbekannt
+    var magsafe = false
     var place: String {
+        if magsafe { return "MagSafe" }
         if location.isEmpty { return "Port \(number)" }
         let t = ["left": "links", "right": "rechts", "back": "hinten", "front": "vorne", "middle": "Mitte"]
         let s = location.split(separator: "-").map { german ? (t[String($0)] ?? String($0)) : String($0) }.joined(separator: " ")
@@ -19,7 +23,14 @@ struct PortState {
     }
     var transports: [String] = []
     var cable: Cable?
+    var charger: Charger?
     var devices: [Device] = []
+    var chargeText: String? {
+        charger.map { c in
+            let v = c.volts.rounded() == c.volts ? "\(Int(c.volts)) V" : String(format: "%.1f V", c.volts)
+            return "\(c.watts) W · \(v)"
+        }
+    }
 
     var isThunderbolt: Bool { transports.contains("CIO") }
     /// Am Port selbst zählt das schnellste Gerät; hinter Hubs hängen oft langsame Beigeräte.
@@ -33,6 +44,7 @@ struct PortState {
     var speedText: String? {
         if let m = main { return Self.fmt(m.bps) }
         if isThunderbolt { return "Thunderbolt" }
+        if let c = charger { return "\(c.watts) W" }
         return nil
     }
     static func fmt(_ bps: Double) -> String {
@@ -50,9 +62,16 @@ struct PortState {
     var detail: String {
         if let m = main {
             let who = m.volumes.isEmpty ? m.name : m.volumes.joined(separator: ", ")
-            return m.volumes.isEmpty ? who : L("\(who) · 100 GB ab \(Self.copyTime(m.bps))", "\(who) · 100 GB in about \(Self.copyTime(m.bps))")
+            let s = m.volumes.isEmpty ? who : L("\(who) · 100 GB ab \(Self.copyTime(m.bps))", "\(who) · 100 GB in about \(Self.copyTime(m.bps))")
+            return charger.map { s + L(" · lädt mit \($0.watts) W", " · charging at \($0.watts) W") } ?? s
         }
-        if isThunderbolt { return L("Thunderbolt / USB4 verbunden", "Thunderbolt / USB4 connected") }
+        if isThunderbolt { return L("Thunderbolt / USB4 verbunden", "Thunderbolt / USB4 connected") + (charger.map { L(" · lädt mit \($0.watts) W", " · charging at \($0.watts) W") } ?? "") }
+        // Wie bei Geräten nur der Name; Spannung und Netzteil-Maximum stehen im Menü.
+        // MagSafe ist nur das Kabel; dahinter steckt ein normales USB-C-Netzteil, PD oder langsam.
+        if let c = charger {
+            let kind = c.pd ? L("PD-Netzteil", "PD charger") : L("Langsames Netzteil", "Slow charger")
+            return magsafe ? "MagSafe · " + kind : kind
+        }
         if let c = cable { return L("Nur Kabel oder Strom · Kabel bis \(c.speed)", "Cable or power only · cable up to \(c.speed)") }
         return L("Kein Datengerät erkannt", "No data device detected")
     }
@@ -65,6 +84,7 @@ struct PortState {
 }
 
 enum Hardware {
+    static let magsafeBase = 100
     static func prop(_ e: io_registry_entry_t, _ k: String) -> Any? {
         IORegistryEntryCreateCFProperty(e, k as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
     }
@@ -121,20 +141,39 @@ enum Hardware {
     static func scan() -> [PortState] {
         var ports: [Int: PortState] = [:]
         each("IOPort") { e in
-            guard let d = prop(e, "Description") as? String, d.hasPrefix("Port-USB-C@"),
+            guard let d = prop(e, "Description") as? String, d.hasPrefix("Port-USB-C@") || d.hasPrefix("Port-MagSafe"),
                   let n = (prop(e, "PortNumber") as? NSNumber)?.intValue else { return }
-            var p = PortState(number: n)
+            // MagSafe zählt eigene Nummern ab 1; eigener Bereich, damit nichts mit USB-C kollidiert.
+            let mag = d.hasPrefix("Port-MagSafe")
+            var p = PortState(number: mag ? magsafeBase + n : n)
+            p.magsafe = mag
             p.active = prop(e, "ConnectionActive") as? Bool ?? false
             p.uuid = prop(e, "ConnectionUUID") as? String ?? ""
             p.transports = prop(e, "TransportsActive") as? [String] ?? []
-            p.location = location(e)
-            ports[n] = p
+            // MagSafe hat keine port-location; es sitzt immer links ganz hinten.
+            p.location = mag ? "magsafe" : location(e)
+            ports[p.number] = p
         }
         each("IOPortTransportComponentCCUSBPDSOPp") { e in
             guard (prop(e, "ParentPortTypeDescription") as? String) == "USB-C",
                   let n = (prop(e, "ParentPortNumber") as? NSNumber)?.intValue,
                   let md = prop(e, "Metadata") as? [String: Any], let v = md["VDOs"] as? [Data] else { return }
             ports[n]?.cable = decode(v, type: (md["Product Type"] as? NSNumber)?.intValue ?? 0)
+        }
+        // Ladeleistung: nur Quellen mit ausgehandeltem Vertrag zählen; die stärkste gewinnt.
+        each("IOPortFeaturePowerSource") { e in
+            let type = prop(e, "ParentPortTypeDescription") as? String ?? ""
+            guard type == "USB-C" || type.hasPrefix("MagSafe"),
+                  let pn = (prop(e, "ParentPortNumber") as? NSNumber)?.intValue,
+                  let win = prop(e, "WinningPowerSourceOption") as? [String: Any],
+                  let mw = (win["Max Power (mW)"] as? NSNumber)?.intValue, mw > 0 else { return }
+            let n = type.hasPrefix("MagSafe") ? magsafeBase + pn : pn
+            let mv = (win["Voltage (mV)"] as? NSNumber)?.doubleValue ?? 0
+            let opts = prop(e, "PowerSourceOptions") as? [[String: Any]] ?? []
+            let best = opts.compactMap { ($0["Max Power (mW)"] as? NSNumber)?.intValue }.max() ?? mw
+            let c = Charger(watts: Int((Double(mw) / 1000).rounded()), volts: (mv / 100).rounded() / 10, maxWatts: Int((Double(max(best, mw)) / 1000).rounded()),
+                            pd: (prop(e, "PowerSourceName") as? String) == "USB-PD")
+            if (ports[n]?.charger?.watts ?? 0) < c.watts { ports[n]?.charger = c }
         }
         var bus: [UInt32: Int] = [:]
         each("AppleUSBHostPort") { e in
@@ -149,6 +188,7 @@ enum Hardware {
             let name = prop(e, "USB Product Name") as? String ?? L("USB-Gerät", "USB device")
             ports[n]?.devices.append(Device(name: name, bps: s, volumes: volumes(e, m), loc: l))
         }
-        return ports.values.sorted { $0.number < $1.number }
+        // MagSafe zuerst: es sitzt links ganz hinten, vor den USB-C-Ports.
+        return ports.values.sorted { ($0.magsafe ? 0 : 1, $0.number) < ($1.magsafe ? 0 : 1, $1.number) }
     }
 }
