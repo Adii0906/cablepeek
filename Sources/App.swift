@@ -256,6 +256,8 @@ struct Glass: ViewModifier {
         do { if SMAppService.mainApp.status == .enabled { try SMAppService.mainApp.unregister() } else { try SMAppService.mainApp.register() } }
         catch { NSAlert(error: error).runModal() }
     }
+    /// Öffnet nur die Release-Seite im Browser; die App selbst geht nie ins Netz.
+    @objc func updates() { NSWorkspace.shared.open(URL(string: "https://github.com/diegobruegger-prog/cablepeek/releases/latest")!) }
     func menuNeedsUpdate(_ m: NSMenu) {
         m.removeAllItems()
         ports = Hardware.scan(); icon()
@@ -277,6 +279,8 @@ struct Glass: ViewModifier {
         m.addItem(withTitle: L("Anzeigen", "Show now"), action: #selector(showAll), keyEquivalent: "").target = self
         let l = m.addItem(withTitle: L("Beim Anmelden starten", "Launch at login"), action: #selector(login), keyEquivalent: ""); l.target = self
         l.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        m.addItem(withTitle: L("Nach Updates sehen (du hast \(v))", "Check for updates (you have \(v))"), action: #selector(updates), keyEquivalent: "").target = self
         m.addItem(withTitle: L("Beenden", "Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
 }
