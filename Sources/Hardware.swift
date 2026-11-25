@@ -173,13 +173,16 @@ enum Hardware {
             let best = opts.compactMap { ($0["Max Power (mW)"] as? NSNumber)?.intValue }.max() ?? mw
             let c = Charger(watts: Int((Double(mw) / 1000).rounded()), volts: (mv / 100).rounded() / 10, maxWatts: Int((Double(max(best, mw)) / 1000).rounded()),
                             pd: (prop(e, "PowerSourceName") as? String) == "USB-PD")
-            if (ports[n]?.charger?.watts ?? 0) < c.watts { ports[n]?.charger = c }
+            // Nach dem Abziehen bleibt der letzte Vertrag stehen, darum nur bei aktivem Port.
+            if ports[n]?.active == true, (ports[n]?.charger?.watts ?? 0) < c.watts { ports[n]?.charger = c }
         }
         var bus: [UInt32: Int] = [:]
         each("AppleUSBHostPort") { e in
-            guard let l = (prop(e, "locationID") as? NSNumber)?.uint32Value,
-                  let d = prop(e, "usb-c-port-number") as? Data, let n = d.first else { return }
-            bus[l >> 24] = Int(n)
+            guard let l = (prop(e, "locationID") as? NSNumber)?.uint32Value else { return }
+            if let d = prop(e, "usb-c-port-number") as? Data, let n = d.first { bus[l >> 24] = Int(n); return }
+            // Neuere Macs (z. B. Mac17,9) haben den Wert nicht, dafür den Pfad zum Port: …/Port-USB-C@2
+            if let path = prop(e, "UsbIOPort") as? String, let r = path.range(of: "/Port-USB-C@", options: .backwards),
+               let n = Int(path[r.upperBound...]) { bus[l >> 24] = n }
         }
         let m = mounts()
         each("IOUSBHostDevice") { e in
