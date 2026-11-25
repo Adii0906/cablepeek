@@ -16,7 +16,8 @@ Download: https://cablepeek.pages.dev or the [latest release](../../releases/lat
 - USB-A ports are not shown. On desktop Macs the card appears at the edge of the main screen.
 - Link speed depends on cable, plug and device. If the cable has a readable chip, CablePeek uses it. If it cannot tell what is slow, it says so.
 - Copy times are best-case estimates from the link speed, not measurements.
-- It reads port information, drive names and the pointer position. It does not open files or use the network. "Check for updates" only opens the release page in your browser.
+- It reads port information, drive names and the pointer position. It does not open your files.
+- **Automatic updates are on by default.** Once a day, and shortly after launch, it asks GitHub for a newer release and installs it. Updates must carry an Ed25519 signature made with a key that is not on GitHub. Nothing about your Mac is sent, GitHub sees the request like any other. Turn it off in the menu. There is no other network use.
 - It ejects only when you click the button and never forces an eject.
 
 ## Build

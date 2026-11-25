@@ -9,8 +9,8 @@ struct Card: View {
     @State private var state = ""   // "", busy, ok, fail
     var volumes: [String] { p.devices.flatMap(\.volumes) }
     func eject() {
-        state = "busy"
-        Eject.run(volumes) { state = $0 ? "ok" : "fail" }
+        state = "busy"; Eject.busy += 1
+        Eject.run(volumes) { Eject.busy -= 1; state = $0 ? "ok" : "fail" }
     }
     @ViewBuilder var ejectPart: some View {
         if state == "busy" { ProgressView().controlSize(.small).frame(width: 28) }
@@ -161,6 +161,7 @@ struct Glass: ViewModifier {
         }
         let t = Timer(timeInterval: 1, repeats: true) { _ in MainActor.assumeIsolated { self.refresh() } }
         t.tolerance = 0.3; RunLoop.main.add(t, forMode: .common)
+        Update.start { [weak self] in self?.held.isEmpty ?? true && Eject.busy == 0 }
         if CommandLine.arguments.contains("--demo") { showAll() }
         if CommandLine.arguments.contains("--demo-hover") { for p in ports where p.active { overlay.show(p, settled: true, seconds: 8, interactive: true) } }
     }
@@ -256,8 +257,25 @@ struct Glass: ViewModifier {
         do { if SMAppService.mainApp.status == .enabled { try SMAppService.mainApp.unregister() } else { try SMAppService.mainApp.register() } }
         catch { NSAlert(error: error).runModal() }
     }
-    /// Öffnet nur die Release-Seite im Browser; die App selbst geht nie ins Netz.
-    @objc func updates() { NSWorkspace.shared.open(URL(string: "https://github.com/diegobruegger-prog/cablepeek/releases/latest")!) }
+    @objc func coffee() { NSWorkspace.shared.open(URL(string: "https://buymeacoffee.com/diegoespresso")!) }
+    @objc func autoUpdate() { Update.enabled.toggle() }
+    @objc func updates() {
+        Task {
+            let a = NSAlert()
+            do {
+                if try await Update.run(idle: { self.held.isEmpty && Eject.busy == 0 }) { return }
+                a.messageText = L("CablePeek \(Update.current) ist aktuell.", "CablePeek \(Update.current) is up to date.")
+            } catch {
+                a.messageText = L("Update nicht möglich.", "Could not update.")
+                a.informativeText = L("Du kannst die neueste Version von der Website laden.", "You can get the latest version from the website.")
+                a.addButton(withTitle: L("Seite öffnen", "Open page")); a.addButton(withTitle: L("Abbrechen", "Cancel"))
+                NSApp.activate(ignoringOtherApps: true)
+                if a.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(Update.page) }
+                return
+            }
+            NSApp.activate(ignoringOtherApps: true); a.runModal()
+        }
+    }
     func menuNeedsUpdate(_ m: NSMenu) {
         m.removeAllItems()
         ports = Hardware.scan(); icon()
@@ -279,8 +297,10 @@ struct Glass: ViewModifier {
         m.addItem(withTitle: L("Anzeigen", "Show now"), action: #selector(showAll), keyEquivalent: "").target = self
         let l = m.addItem(withTitle: L("Beim Anmelden starten", "Launch at login"), action: #selector(login), keyEquivalent: ""); l.target = self
         l.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
-        m.addItem(withTitle: L("Nach Updates sehen (du hast \(v))", "Check for updates (you have \(v))"), action: #selector(updates), keyEquivalent: "").target = self
+        let u = m.addItem(withTitle: L("Automatische Updates", "Automatic updates"), action: #selector(autoUpdate), keyEquivalent: ""); u.target = self
+        u.state = Update.enabled ? .on : .off
+        m.addItem(withTitle: L("Nach Updates suchen (du hast \(Update.current))", "Check for updates (you have \(Update.current))"), action: #selector(updates), keyEquivalent: "").target = self
+        m.addItem(withTitle: L("Kaffee spendieren", "Buy me a coffee"), action: #selector(coffee), keyEquivalent: "").target = self
         m.addItem(withTitle: L("Beenden", "Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
 }

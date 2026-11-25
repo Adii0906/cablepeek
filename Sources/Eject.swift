@@ -2,6 +2,8 @@ import AppKit
 import DiskArbitration
 
 enum Eject {
+    /// Laufende Auswürfe; solange startet die App nicht für ein Update neu.
+    static var busy = 0
     /// Normales Auswerfen ganzer Datenträger, nie erzwungen: erst alle Volumes sauber aushängen, dann auswerfen.
     /// Ist etwas in Gebrauch, lehnt macOS ab und das Laufwerk bleibt verbunden.
     static func run(_ names: [String], done: @escaping (Bool) -> Void) {
