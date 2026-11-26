@@ -57,6 +57,21 @@ struct Card: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: left ? .leading : .trailing)
     }
 }
+/// Kleine Glasmarke am Rand: zeigt, wo man hovern kann. Klicks gehen durch.
+struct Hint: View {
+    var body: some View {
+        Group {
+            if #available(macOS 26, *) { Capsule().fill(.white.opacity(0.08)).glassEffect(.regular, in: .capsule) }
+            else { Capsule().fill(.ultraThinMaterial) }
+        }
+        // Hell und dunkel umrandet, damit sie auf jedem Hintergrund sichtbar bleibt.
+        .overlay(Capsule().strokeBorder(.white.opacity(0.45), lineWidth: 0.5).padding(0.5))
+        .overlay(Capsule().strokeBorder(.black.opacity(0.22), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.25), radius: 1.5)
+        .frame(width: 6, height: 40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
 /// Erster Klick zählt sofort, ohne die App in den Vordergrund zu holen.
 final class CardHost: NSHostingView<Card> { override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true } }
 struct Glass: ViewModifier {
@@ -69,6 +84,31 @@ struct Glass: ViewModifier {
 @MainActor final class Overlay {
     private var panels: [Int: NSPanel] = [:]
     private var timers: [Int: Timer] = [:]
+    private var hints: [Int: NSPanel] = [:]
+    static var hintsOn: Bool {
+        get { UserDefaults.standard.bool(forKey: "edgeHints") }
+        set { UserDefaults.standard.set(newValue, forKey: "edgeHints") }
+    }
+    /// Marke pro belegtem Port, solange dort keine Karte offen ist.
+    func syncHints(_ ports: [PortState]) {
+        var want: Set<Int> = []
+        for p in ports where Self.hintsOn && p.active && panels[p.number] == nil {
+            guard let f = Self.frame(p), let s = Self.screen() else { continue }
+            want.insert(p.number)
+            let r = NSRect(x: Self.left(p) ? s.frame.minX : s.frame.maxX - 14, y: f.midY - 26, width: 14, height: 52)
+            let w = hints[p.number] ?? {
+                let w = NSPanel(contentRect: r, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+                w.isOpaque = false; w.backgroundColor = .clear; w.hasShadow = false
+                w.level = .statusBar; w.ignoresMouseEvents = true; w.hidesOnDeactivate = false
+                w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+                w.contentView = NSHostingView(rootView: Hint())
+                hints[p.number] = w; return w
+            }()
+            if w.frame != r { w.setFrame(r, display: true) }
+            w.orderFrontRegardless()
+        }
+        for (n, w) in hints where !want.contains(n) { w.orderOut(nil); hints[n] = nil }
+    }
     static func screen() -> NSScreen? {
         NSScreen.screens.first {
             guard let id = $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
@@ -203,7 +243,7 @@ struct Glass: ViewModifier {
             if shown[p.number] != key, !held.contains(p.number) { shown[p.number] = key; overlay.show(p, settled: settled) }
             if age > 8 { connectedAt[p.number] = nil }
         }
-        ports = now; icon()
+        ports = now; icon(); overlay.syncHints(ports)
     }
     func icon() {
         let slow = ports.contains { $0.active && $0.slowStorage }
@@ -232,6 +272,7 @@ struct Glass: ViewModifier {
             } else if held.remove(n) != nil, overlay.visible(n) { overlay.hideSoon(n, 0.4) }
             if !overlay.visible(n), Overlay.edge(p)?.contains(m) == true { over = n }
         }
+        overlay.syncHints(ports)
         if held.isEmpty { poll?.invalidate(); poll = nil }
         else if poll == nil {
             poll = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { _ in
@@ -254,6 +295,7 @@ struct Glass: ViewModifier {
         })
     }
     @objc func showAll() { for p in Hardware.scan() where p.active { overlay.show(p, settled: true, seconds: 8) } }
+    @objc func edgeHints() { Overlay.hintsOn.toggle(); overlay.syncHints(ports) }
     @objc func login() {
         do { if SMAppService.mainApp.status == .enabled { try SMAppService.mainApp.unregister() } else { try SMAppService.mainApp.register() } }
         catch { NSAlert(error: error).runModal() }
@@ -300,6 +342,8 @@ struct Glass: ViewModifier {
         l.state = SMAppService.mainApp.status == .enabled ? .on : .off
         let u = m.addItem(withTitle: L("Automatische Updates", "Automatic updates"), action: #selector(autoUpdate), keyEquivalent: ""); u.target = self
         u.state = Update.enabled ? .on : .off
+        let h = m.addItem(withTitle: L("Markierung am Rand zeigen", "Show edge markers"), action: #selector(edgeHints), keyEquivalent: ""); h.target = self
+        h.state = Overlay.hintsOn ? .on : .off
         m.addItem(withTitle: L("Nach Updates suchen (du hast \(Update.current))", "Check for updates (you have \(Update.current))"), action: #selector(updates), keyEquivalent: "").target = self
         m.addItem(withTitle: L("Kaffee spendieren", "Buy me a coffee"), action: #selector(coffee), keyEquivalent: "").target = self
         m.addItem(withTitle: L("Beenden", "Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
