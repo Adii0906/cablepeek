@@ -5,7 +5,7 @@ import CryptoKit
 /// was mit Diegos Schlüssel signiert ist. Der private Schlüssel liegt nicht auf GitHub.
 /// Es wird nichts über den Mac mitgeschickt.
 @MainActor enum Update {
-    static let publicKey = "wwzGTwc24erIfpoul9yL9VWcgJ7UdkoPQgwcGj4E0Do="
+    static let publicKey = "IS1P7wj/2w/SZ55SbBeegivm7FrkMBk4viDslSfdgRc="
     #if TESTFEED
     static let base = ProcessInfo.processInfo.environment["FEED"]!
     #else
