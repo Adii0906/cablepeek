@@ -8,6 +8,12 @@ A small Mac app that shows the USB-C link speed, or the charging power, at the s
 
 Download: https://cablepeek.pages.dev or the [latest release](../../releases/latest).
 
+Or with Homebrew:
+
+```sh
+brew install --cask diegobruegger-prog/tap/cablepeek
+```
+
 ## Good to know
 
 - Apple Silicon, macOS 14 or later. Liquid Glass on macOS 26, frosted glass before that.
