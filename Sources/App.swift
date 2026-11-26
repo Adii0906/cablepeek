@@ -86,7 +86,7 @@ struct Glass: ViewModifier {
     private var timers: [Int: Timer] = [:]
     private var hints: [Int: NSPanel] = [:]
     static var hintsOn: Bool {
-        get { UserDefaults.standard.bool(forKey: "edgeHints") }
+        get { UserDefaults.standard.object(forKey: "edgeHints") as? Bool ?? true }   // Standard: an
         set { UserDefaults.standard.set(newValue, forKey: "edgeHints") }
     }
     /// Marke pro belegtem Port, solange dort keine Karte offen ist.

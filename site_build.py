@@ -6,7 +6,7 @@ mac=f'''<div class="mw"><div class="mac" aria-hidden="true"><div class="scr">{wa
 <div class="base"><i class="c l"></i><i class="c l b" style="top:1.2cqw"></i><i class="c r"></i></div></div></div>'''.replace(' style="top:1.2cqw"','')
 fav="<link rel=\"icon\" href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23111'/%3E%3Crect x='4' y='8.5' width='16' height='7' rx='3.5' fill='none' stroke='%23fff' stroke-width='1.7'/%3E%3Crect x='8' y='11.2' width='8' height='1.6' rx='.8' fill='%23fff'/%3E%3C/svg%3E\">"
 L=[('At the port','Plug in on the left and it shows on the left. Your Mac knows where its ports are.'),
-('Back on hover','Rest the pointer at the screen edge next to a port. The speed returns, with an eject button for drives. An eject is never forced. If you like, a small glass mark shows where to hover.'),
+('Back on hover','Rest the pointer at the screen edge next to a port. The speed returns, with an eject button for drives. An eject is never forced. A small glass mark shows where to hover, and you can turn it off.'),
 ('The slow part','Speed depends on cable, plug and device. If the cable has a chip, CablePeek reads it. If it cannot tell, it says so.'),
 ('Every port','The menu bar icon lists ports, devices and cable chips. It gets a dot when a drive runs at USB 2 speed.'),
 ('Charging','With only a charger on the port, CablePeek shows the negotiated watts, for USB-C and MagSafe.'),
