@@ -21,6 +21,7 @@ brew install --cask diegobruegger-prog/tap/cablepeek
 - Tested on a MacBook Pro with M2 Pro. A user reported 0.1 working on a Mac mini with M4 Pro. Macs without `usb-c-port-number` are supported since 0.2, not yet confirmed on real hardware. Reports are welcome.
 - SD card slot (since 0.5): shows the speed of the card's bus mode, for example 100 MB/s for UHS-I SDR104, with a card icon instead of the bolt. That is the limit of the slot connection, a slow card can be slower.
 - Thunderbolt (since 0.5): shows the negotiated link speed, for example 40 Gb/s, when macOS reports it. Not yet confirmed with real Thunderbolt hardware. If it only says "Thunderbolt", the value could not be read. Reports are welcome.
+- Edge markers (since 0.6, off by default): turn on "Show edge markers" in the menu and a small glass mark stays at the screen edge next to every port in use, so you know where to hover.
 - USB-A ports are not shown. On desktop Macs the card appears at the edge of the main screen.
 - Link speed depends on cable, plug and device. If the cable has a readable chip, CablePeek uses it. If it cannot tell what is slow, it says so.
 - Copy times are best-case estimates from the link speed, not measurements.
