@@ -16,6 +16,9 @@ struct PortState {
     var magsafe = false
     /// SD-Slot: Bustempo des ausgehandelten Kartenmodus in MB/s und der Modus selbst (z. B. SDR104).
     var sdMBs: Double?
+    /// Thunderbolt: ausgehandeltes Leitungstempo zum ersten Gerät und dessen Name.
+    var tbBps: Double?
+    var tbName = ""
     var sdMode = ""
     var place: String {
         if magsafe { return "MagSafe" }
@@ -48,7 +51,7 @@ struct PortState {
     var speedText: String? {
         if let s = sdMBs { return "\(Int(s.rounded())) MB/s" }
         if let m = main { return Self.fmt(m.bps) }
-        if isThunderbolt { return "Thunderbolt" }
+        if isThunderbolt { return tbBps.map(Self.fmt) ?? "Thunderbolt" }
         if let c = charger { return "\(c.watts) W" }
         return nil
     }
@@ -75,6 +78,7 @@ struct PortState {
             let s = m.volumes.isEmpty ? who : L("\(who) · 100 GB ab \(Self.copyTime(m.bps))", "\(who) · 100 GB in about \(Self.copyTime(m.bps))")
             return charger.map { s + L(" · lädt mit \($0.watts) W", " · charging at \($0.watts) W") } ?? s
         }
+        if isThunderbolt, tbBps != nil { return "Thunderbolt" + (tbName.isEmpty ? "" : " · \(tbName)") + (charger.map { L(" · lädt mit \($0.watts) W", " · charging at \($0.watts) W") } ?? "") }
         if isThunderbolt { return L("Thunderbolt / USB4 verbunden", "Thunderbolt / USB4 connected") + (charger.map { L(" · lädt mit \($0.watts) W", " · charging at \($0.watts) W") } ?? "") }
         // Wie bei Geräten nur der Name; Spannung und Netzteil-Maximum stehen im Menü.
         // MagSafe ist nur das Kabel; dahinter steckt ein normales USB-C-Netzteil, PD oder langsam.
@@ -168,6 +172,33 @@ enum Hardware {
         }
         ports[n] = p
     }
+    /// Thunderbolt-Tempo pro Port. Geräte-Switches (Depth 1) gibt es nur mit angeschlossenem Gerät;
+    /// ihr Upstream-Port kennt das ausgehandelte Tempo. Kodierung wie in der USB4-Spezifikation:
+    /// Current Link Speed 0x8 = 10, 0x4 = 20, 0x2 = 40 Gb/s pro Lane; Width 2 = zwei Lanes gebündelt.
+    /// Nicht mit echter Hardware geprüft (26.11.2026): unbekannte Werte fallen auf "Thunderbolt" zurück.
+    static func thunderbolt() -> [(socket: Int?, bps: Double, name: String)] {
+        var r: [(socket: Int?, bps: Double, name: String)] = []
+        each("IOThunderboltSwitch") { sw in
+            guard (prop(sw, "Depth") as? NSNumber)?.intValue == 1,
+                  let up = (prop(sw, "Upstream Port Number") as? NSNumber)?.intValue else { return }
+            var it: io_iterator_t = 0
+            guard IORegistryEntryGetChildIterator(sw, kIOServicePlane, &it) == KERN_SUCCESS else { return }
+            defer { IOObjectRelease(it) }
+            while case let c = IOIteratorNext(it), c != 0 {
+                defer { IOObjectRelease(c) }
+                guard IOObjectConformsTo(c, "IOThunderboltPort") != 0, (prop(c, "Port Number") as? NSNumber)?.intValue == up,
+                      let sp = (prop(c, "Current Link Speed") as? NSNumber)?.intValue,
+                      let w = (prop(c, "Current Link Width") as? NSNumber)?.intValue, w == 1 || w == 2 else { continue }
+                let lane: Double = [0x8: 10e9, 0x4: 20e9, 0x2: 40e9][sp] ?? 0
+                guard lane > 0 else { continue }
+                let o = IOOptionBits(kIORegistryIterateRecursively | kIORegistryIterateParents)
+                let socket = (IORegistryEntrySearchCFProperty(sw, kIOServicePlane, "Socket ID" as CFString, kCFAllocatorDefault, o) as? String).flatMap { Int($0) }
+                let name = [prop(sw, "Device Vendor Name") as? String, prop(sw, "Device Model Name") as? String].compactMap { $0 }.joined(separator: " ")
+                r.append((socket, lane * Double(w), name))
+            }
+        }
+        return r
+    }
     static func scan() -> [PortState] {
         var ports: [Int: PortState] = [:]
         each("IOPort") { e in
@@ -221,6 +252,12 @@ enum Hardware {
                   let s = (prop(e, "UsbLinkSpeed") as? NSNumber)?.doubleValue else { return }
             let name = prop(e, "USB Product Name") as? String ?? L("USB-Gerät", "USB device")
             ports[n]?.devices.append(Device(name: name, bps: s, volumes: volumes(e, m), loc: l))
+        }
+        // Ein Thunderbolt-Gerät: eindeutig. Mehrere: nur über die Socket-Nummer zuordnen.
+        let tb = thunderbolt(), tbPorts = ports.values.filter { $0.isThunderbolt }.map(\.number)
+        for t in tb {
+            guard let n = tb.count == 1 && tbPorts.count == 1 ? tbPorts.first : t.socket.flatMap({ tbPorts.contains($0) ? $0 : nil }) else { continue }
+            ports[n]?.tbBps = t.bps; ports[n]?.tbName = t.name
         }
         // MagSafe zuerst: es sitzt links ganz hinten, vor den USB-C-Ports.
         return ports.values.sorted { ($0.magsafe ? 0 : 1, $0.number) < ($1.magsafe ? 0 : 1, $1.number) }
