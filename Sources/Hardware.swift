@@ -14,8 +14,12 @@ struct PortState {
     var uuid = ""
     var location = ""   // z. B. left-back, left-front, right; leer = unbekannt
     var magsafe = false
+    /// SD-Slot: Bustempo des ausgehandelten Kartenmodus in MB/s und der Modus selbst (z. B. SDR104).
+    var sdMBs: Double?
+    var sdMode = ""
     var place: String {
         if magsafe { return "MagSafe" }
+        if sdMBs != nil || location == "sd" { return L("SD-Karte", "SD card") }
         if location.isEmpty { return "Port \(number)" }
         let t = ["left": "links", "right": "rechts", "back": "hinten", "front": "vorne", "middle": "Mitte"]
         let s = location.split(separator: "-").map { german ? (t[String($0)] ?? String($0)) : String($0) }.joined(separator: " ")
@@ -40,8 +44,9 @@ struct PortState {
             storage.isEmpty ? a.bps > b.bps : a.bps < b.bps
         }
     }
-    var slowStorage: Bool { (main.map { !$0.volumes.isEmpty && $0.bps < 1e9 }) ?? false }
+    var slowStorage: Bool { sdMBs == nil && (main.map { !$0.volumes.isEmpty && $0.bps < 1e9 }) ?? false }
     var speedText: String? {
+        if let s = sdMBs { return "\(Int(s.rounded())) MB/s" }
         if let m = main { return Self.fmt(m.bps) }
         if isThunderbolt { return "Thunderbolt" }
         if let c = charger { return "\(c.watts) W" }
@@ -55,11 +60,16 @@ struct PortState {
         switch bps { case 2e10...: return 2000; case 1e10...: return 1000; case 5e9...: return 430
         case 4e8...: return 40; default: return bps / 8e6 * 0.7 }
     }
-    static func copyTime(_ bps: Double) -> String {
-        let s = 100_000 / realMBs(bps)
+    static func copyTime(_ bps: Double) -> String { duration(100_000 / realMBs(bps)) }
+    static func duration(_ s: Double) -> String {
         return s < 90 ? "\(Int(s)) s" : s < 5400 ? "\(Int((s / 60).rounded())) min" : String(format: "%.1f h", s / 3600)
     }
     var detail: String {
+        // SD: Busgrenze minus etwa 10 % Protokoll; die Karte selbst kann langsamer sein.
+        if let s = sdMBs, let m = main {
+            let who = m.volumes.isEmpty ? m.name : m.volumes.joined(separator: ", ")
+            return L("\(who) · 100 GB ab \(Self.duration(100_000 / (s * 0.9)))", "\(who) · 100 GB in about \(Self.duration(100_000 / (s * 0.9)))")
+        }
         if let m = main {
             let who = m.volumes.isEmpty ? m.name : m.volumes.joined(separator: ", ")
             let s = m.volumes.isEmpty ? who : L("\(who) · 100 GB ab \(Self.copyTime(m.bps))", "\(who) · 100 GB in about \(Self.copyTime(m.bps))")
@@ -138,9 +148,30 @@ enum Hardware {
         guard let d = IORegistryEntrySearchCFProperty(e, kIOServicePlane, "port-location" as CFString, kCFAllocatorDefault, o) as? Data else { return "" }
         return String(decoding: d.prefix { $0 != 0 }, as: UTF8.self).lowercased()
     }
+    static let sdBase = 200
+    /// Eingebauter SD-Slot. Ohne Karte bleiben alte Kartenwerte stehen, darum nur bei aktiver Verbindung lesen.
+    static func sd(_ e: io_registry_entry_t, _ ports: inout [Int: PortState]) {
+        let n = sdBase + ((prop(e, "PortNumber") as? NSNumber)?.intValue ?? 1)
+        var p = PortState(number: n)
+        p.location = "sd"
+        p.active = (prop(e, "ConnectionActive") as? Bool ?? false) && (prop(e, "Card Present") as? Bool ?? false)
+        p.uuid = prop(e, "ConnectionUUID") as? String ?? ""
+        if p.active, let mhz = (prop(e, "Calculated Clock Frequency (MHz)") as? NSNumber)?.doubleValue, mhz > 0 {
+            let width = (prop(e, "Bus Width") as? NSNumber)?.doubleValue ?? 4
+            let mode = (prop(e, "Speed Mode") as? String ?? "").replacingOccurrences(of: "UHS: ", with: "")
+            // MB/s = Takt × Datenleitungen / 8, bei DDR zwei Übertragungen pro Takt.
+            let mbs = mhz * width / 8 * (mode.contains("DDR") ? 2 : 1)
+            let info = prop(e, "Card Characteristics") as? [String: Any]
+            let name = (info?["Product Name"] as? String).map { "SD \($0)" } ?? L("SD-Karte", "SD card")
+            p.sdMBs = mbs; p.sdMode = mode
+            p.devices = [Device(name: name, bps: mbs * 8e6, volumes: volumes(e, mounts()), loc: 0)]
+        }
+        ports[n] = p
+    }
     static func scan() -> [PortState] {
         var ports: [Int: PortState] = [:]
         each("IOPort") { e in
+            if let d = prop(e, "Description") as? String, d.hasPrefix("Port-SD") { sd(e, &ports); return }
             guard let d = prop(e, "Description") as? String, d.hasPrefix("Port-USB-C@") || d.hasPrefix("Port-MagSafe"),
                   let n = (prop(e, "PortNumber") as? NSNumber)?.intValue else { return }
             // MagSafe zählt eigene Nummern ab 1; eigener Bereich, damit nichts mit USB-C kollidiert.

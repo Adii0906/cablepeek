@@ -76,13 +76,14 @@ struct Glass: ViewModifier {
         } ?? NSScreen.main
     }
     static let size = NSSize(width: 420, height: 100)
-    static func left(_ p: PortState) -> Bool { !p.location.hasPrefix("right") }
+    static func left(_ p: PortState) -> Bool { !p.location.hasPrefix("right") && p.location != "sd" }
     static func frame(_ p: PortState) -> NSRect? {
         guard let s = screen() else { return nil }
         let l = p.location
         // Die Ports liegen hinten am Gehäuse, also unten am Bildschirm nahe dem Scharnier.
         // Ohne bekannte Lage nach Nummer stapeln, damit sich nichts überdeckt.
-        let dy: CGFloat = l == "magsafe" ? 230 : l.hasSuffix("back") ? 150 : l.hasSuffix("front") ? 70 : l == "left" || l == "right" ? 110 : 70 + 80 * CGFloat(p.number - 1)
+        // Der SD-Slot sitzt rechts vorne, also tiefer als der rechte USB-C-Port.
+        let dy: CGFloat = l == "sd" ? 20 : l == "magsafe" ? 230 : l.hasSuffix("back") ? 150 : l.hasSuffix("front") ? 70 : l == "left" || l == "right" ? 110 : 70 + 80 * CGFloat(p.number - 1)
         return NSRect(origin: NSPoint(x: left(p) ? s.frame.minX : s.frame.maxX - size.width, y: s.frame.minY + dy), size: size)
     }
     /// Schmaler Streifen am Rand, der die Anzeige hervorholt.
@@ -283,11 +284,11 @@ struct Glass: ViewModifier {
             let i = NSMenuItem(title: "\(p.place): \(p.active ? (p.speedText ?? L("keine Daten", "no data")) : L("frei", "empty"))", action: nil, keyEquivalent: "")
             if p.active {
                 let sub = NSMenu()
-                for d in p.devices { sub.addItem(withTitle: "\(d.name)\(d.volumes.isEmpty ? "" : " (\(d.volumes.joined(separator: ", ")))"): \(PortState.fmt(d.bps))", action: nil, keyEquivalent: "") }
+                for d in p.devices { sub.addItem(withTitle: "\(d.name)\(d.volumes.isEmpty ? "" : " (\(d.volumes.joined(separator: ", ")))"): \(p.sdMBs != nil ? "\(p.speedText!) (\(p.sdMode))" : PortState.fmt(d.bps))", action: nil, keyEquivalent: "") }
                 if let c = p.charger {
                     sub.addItem(withTitle: L("Laden", "Charging") + ": \(p.chargeText!)" + (c.maxWatts > c.watts ? L(", Netzteil bis \(c.maxWatts) W", ", charger up to \(c.maxWatts) W") : ""), action: nil, keyEquivalent: "")
                 }
-                sub.addItem(withTitle: p.cable.map { L("Kabelchip", "Cable chip") + ": \($0.speed), \($0.watts) W" } ?? L("Kein Kabelchip gefunden", "No cable chip found"), action: nil, keyEquivalent: "")
+                if p.sdMBs == nil { sub.addItem(withTitle: p.cable.map { L("Kabelchip", "Cable chip") + ": \($0.speed), \($0.watts) W" } ?? L("Kein Kabelchip gefunden", "No cable chip found"), action: nil, keyEquivalent: "") }
                 if let v = p.verdict { sub.addItem(withTitle: v, action: nil, keyEquivalent: "") }
                 i.submenu = sub
             }
