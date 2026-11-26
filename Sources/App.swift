@@ -38,7 +38,7 @@ struct Card: View {
     var color: Color { p.slowStorage || slowCharge ? .orange : (p.speedText == nil ? .secondary : .green) }
     var body: some View {
         HStack(spacing: 11) {
-            Image(systemName: p.slowStorage ? "exclamationmark" : (p.speedText == nil ? "cable.connector" : "bolt.fill"))
+            Image(systemName: p.sdMBs != nil ? "sdcard.fill" : p.slowStorage ? "exclamationmark" : (p.speedText == nil ? "cable.connector" : "bolt.fill"))
                 .font(.system(size: 13, weight: .semibold)).foregroundStyle(color).frame(width: 18)
             VStack(alignment: .leading, spacing: 2) {
                 Text(p.speedText ?? (settled ? L("Keine Daten", "No data") : L("Erkenne …", "Detecting …")))

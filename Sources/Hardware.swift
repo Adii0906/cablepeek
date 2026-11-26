@@ -68,7 +68,7 @@ struct PortState {
         // SD: Busgrenze minus etwa 10 % Protokoll; die Karte selbst kann langsamer sein.
         if let s = sdMBs, let m = main {
             let who = m.volumes.isEmpty ? m.name : m.volumes.joined(separator: ", ")
-            return L("\(who) · 100 GB ab \(Self.duration(100_000 / (s * 0.9)))", "\(who) · 100 GB in about \(Self.duration(100_000 / (s * 0.9)))")
+            return L("SD-Karte · \(who) · 100 GB ab \(Self.duration(100_000 / (s * 0.9)))", "SD card · \(who) · 100 GB in about \(Self.duration(100_000 / (s * 0.9)))")
         }
         if let m = main {
             let who = m.volumes.isEmpty ? m.name : m.volumes.joined(separator: ", ")
