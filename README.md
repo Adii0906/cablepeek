@@ -2,9 +2,9 @@
 
 A small Mac app that shows the USB-C link speed, or the charging power, at the screen edge next to the port when you plug something in. It stays for four seconds. Hover at that edge to see it again or eject the drive.
 
-![Illustration of CablePeek on a laptop](docs/cablepeek.png)
+![Animation: a slow cable shows 480 Mb/s, a fast one 10 Gb/s, a charger 96 W, then the drive is ejected from the card](docs/cablepeek.gif)
 
-*Illustration, not a screenshot.*
+*Illustration, not a screen recording. The texts are the ones the app shows.*
 
 Download: https://cablepeek.pages.dev or the [latest release](../../releases/latest).
 
